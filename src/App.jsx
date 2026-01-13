@@ -1,4 +1,4 @@
-import ProjectCompletionRoadmap from './ProjectCompletionRoadmap'
+import ProjectCompletionRoadmap from './ProjectCompletionRoadmap.jsx'
 
 function App() {
   return <ProjectCompletionRoadmap />

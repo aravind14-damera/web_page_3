@@ -782,6 +782,11 @@ textarea {
   border-left: 3px solid var(--gold);
 }
 
+.toast-error {
+  border-left: 3px solid #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
+
 @keyframes slideUp {
   from {
     transform: translateY(20px);

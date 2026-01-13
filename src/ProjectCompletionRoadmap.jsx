@@ -81,23 +81,28 @@ const phasesData = [
 
 const Toast = ({ message, type = 'success', onClose }) => {
   useEffect(() => {
+    if (!onClose) return;
     const timer = setTimeout(() => {
       onClose();
     }, 3000);
     return () => clearTimeout(timer);
   }, [onClose]);
 
+  if (!message) return null;
+
   return (
-    <div className={`toast toast-${type}`}>
+    <div className={`toast toast-${type || 'success'}`}>
       <span>{message}</span>
-      <button className="toast-close" onClick={onClose} aria-label="Close">
-        ×
-      </button>
+      {onClose && (
+        <button className="toast-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      )}
     </div>
   );
 };
 
-const PhaseCard = ({ phase, defaultOpen = false, onSuccess, onUpdateTaskLevel }) => {
+const PhaseCard = ({ phase, defaultOpen = false, onSuccess, onUpdateTaskLevel, onError }) => {
   const [open, setOpen] = useState(defaultOpen);
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -105,17 +110,28 @@ const PhaseCard = ({ phase, defaultOpen = false, onSuccess, onUpdateTaskLevel })
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState('');
 
-  const taskCount = phase.tasks.length;
-  const completedTasks = phase.tasks.filter((t) => t.level === 5).length;
+  // Safety checks for phase and tasks
+  if (!phase) return null;
+  const tasks = phase.tasks || [];
+  const taskCount = tasks.length;
+  const completedTasks = tasks.filter((t) => t && t.level === 5).length;
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
-      if (selectedFile.type === 'application/pdf') {
+      // Check both MIME type and file extension for better compatibility
+      const isPDF = selectedFile.type === 'application/pdf' || 
+                    selectedFile.name.toLowerCase().endsWith('.pdf');
+      if (isPDF) {
         setFile(selectedFile);
         setFileName(selectedFile.name);
       } else {
-        alert('Please upload a PDF file only.');
+        if (onError) {
+          onError('Please upload a PDF file only.');
+        } else {
+          // Fallback to alert if onError not provided
+          alert('Please upload a PDF file only.');
+        }
         e.target.value = '';
       }
     }
@@ -123,7 +139,12 @@ const PhaseCard = ({ phase, defaultOpen = false, onSuccess, onUpdateTaskLevel })
 
   const handleSubmit = useCallback(async () => {
     if (!notes.trim() && !file) {
-      alert('Please add notes or upload a PDF file before submitting.');
+      if (onError) {
+        onError('Please add notes or upload a PDF file before submitting.');
+      } else {
+        // Fallback to alert if onError not provided
+        alert('Please add notes or upload a PDF file before submitting.');
+      }
       return;
     }
 
@@ -139,7 +160,7 @@ const PhaseCard = ({ phase, defaultOpen = false, onSuccess, onUpdateTaskLevel })
         onSuccess(`All tasks for ${phase.title} submitted successfully!`);
       }
     }, 1500);
-  }, [notes, file, phase.title, onSuccess]);
+  }, [notes, file, phase.title, onSuccess, onError]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Escape' && showModal) {
@@ -182,13 +203,15 @@ const PhaseCard = ({ phase, defaultOpen = false, onSuccess, onUpdateTaskLevel })
       </button>
 
       <div className={`phase-body ${open ? 'show' : ''}`}>
-        {phase.tasks.length === 0 ? (
+        {tasks.length === 0 ? (
           <div className="empty-state">
             <p>No tasks available for this phase.</p>
           </div>
         ) : (
           <div className="tasks">
-            {phase.tasks.map((task, idx) => (
+            {tasks.map((task, idx) => {
+              if (!task) return null;
+              return (
               <div
                 key={task.id}
                 className="task-card"
@@ -232,7 +255,8 @@ const PhaseCard = ({ phase, defaultOpen = false, onSuccess, onUpdateTaskLevel })
                   ))}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -240,8 +264,8 @@ const PhaseCard = ({ phase, defaultOpen = false, onSuccess, onUpdateTaskLevel })
           <button
             className="cta"
             onClick={() => setShowModal(true)}
-            disabled={phase.tasks.length === 0}
-            aria-label={`Submit all tasks for ${phase.title}`}
+            disabled={tasks.length === 0}
+            aria-label={`Submit all tasks for ${phase?.title || 'this phase'}`}
           >
             Submit All Tasks
           </button>
@@ -281,9 +305,10 @@ const PhaseCard = ({ phase, defaultOpen = false, onSuccess, onUpdateTaskLevel })
                 <label className="upload">
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept=".pdf,application/pdf"
                     onChange={handleFileChange}
                     disabled={submitting}
+                    aria-label="Upload PDF file"
                   />
                   <span className="upload-text">
                     {fileName || '📄 Upload PDF Document'}
@@ -414,20 +439,23 @@ const TopNav = ({ projectName, progress }) => {
   );
 };
 
-const filterByEnrollment = (phases, enrollmentMap) =>
-  phases.filter((phase, idx) => enrollmentMap[idx + 1]);
+const filterByEnrollment = (phases, enrollmentMap) => {
+  if (!phases || !Array.isArray(phases)) return [];
+  return phases.filter((phase, idx) => enrollmentMap && enrollmentMap[idx + 1]);
+};
 
 const computeProgress = (visiblePhases) => {
-  const allTasks = visiblePhases.flatMap((p) => p.tasks);
+  if (!visiblePhases || !Array.isArray(visiblePhases)) return 0;
+  const allTasks = visiblePhases.flatMap((p) => (p && p.tasks ? p.tasks : []));
   if (!allTasks.length) return 0;
-  const sum = allTasks.reduce((acc, t) => acc + t.level, 0);
+  const sum = allTasks.reduce((acc, t) => acc + (t && typeof t.level === 'number' ? t.level : 0), 0);
   const max = allTasks.length * 5;
-  return Math.round((sum / max) * 100);
+  return max > 0 ? Math.round((sum / max) * 100) : 0;
 };
 
 const ProjectCompletionRoadmap = () => {
   const [phases, setPhases] = useState(phasesData);
-  const [enrollment, setEnrollment] = useState({ 1: true, 2: true, 3: false });
+  const [enrollment, setEnrollment] = useState({ 1: true, 2: true, 3: true });
   const [toast, setToast] = useState(null);
 
   const visiblePhases = useMemo(
@@ -441,23 +469,31 @@ const ProjectCompletionRoadmap = () => {
   );
 
   const updateTaskLevel = useCallback((phaseId, taskId, newLevel) => {
-    setPhases((prevPhases) =>
-      prevPhases.map((phase) => {
-        if (phase.id === phaseId) {
+    if (!phaseId || !taskId || typeof newLevel !== 'number' || newLevel < 0 || newLevel > 5) {
+      return;
+    }
+    setPhases((prevPhases) => {
+      if (!prevPhases || !Array.isArray(prevPhases)) return prevPhases;
+      return prevPhases.map((phase) => {
+        if (phase && phase.id === phaseId && phase.tasks) {
           return {
             ...phase,
             tasks: phase.tasks.map((task) =>
-              task.id === taskId ? { ...task, level: newLevel } : task
+              task && task.id === taskId ? { ...task, level: Math.max(0, Math.min(5, newLevel)) } : task
             ),
           };
         }
         return phase;
-      })
-    );
+      });
+    });
   }, []);
 
   const handleSuccess = (message) => {
     setToast({ message, type: 'success' });
+  };
+
+  const handleError = (message) => {
+    setToast({ message, type: 'error' });
   };
 
   return (
@@ -481,7 +517,8 @@ const ProjectCompletionRoadmap = () => {
             <p className="enrollment-title">Select Phases to View</p>
             <p className="enrollment-hint">Toggle phases you're enrolled in to see your tasks</p>
             {[1, 2, 3].map((num) => {
-              const phase = phases[num - 1];
+              const phase = phases && phases[num - 1];
+              if (!phase) return null;
               return (
                 <label key={num} className="checkbox">
                   <input
@@ -490,14 +527,14 @@ const ProjectCompletionRoadmap = () => {
                     onChange={(e) =>
                       setEnrollment((prev) => ({ ...prev, [num]: e.target.checked }))
                     }
-                    aria-label={`${phase.title}: ${phase.description}`}
+                    aria-label={`${phase.title || 'Phase'}: ${phase.description || ''}`}
                   />
                   <div className="checkbox-content">
                     <span className="checkbox-label">
-                      {phase.title}: {phase.description}
+                      {phase.title || `Phase ${num}`}: {phase.description || ''}
                     </span>
                     <span className="checkbox-count">
-                      {phase.tasks.length} tasks
+                      {phase.tasks ? phase.tasks.length : 0} tasks
                     </span>
                   </div>
                 </label>
@@ -518,8 +555,9 @@ const ProjectCompletionRoadmap = () => {
               <PhaseCard
                 key={phase.id}
                 phase={phase}
-                defaultOpen={idx === 0}
+                defaultOpen={true}
                 onSuccess={handleSuccess}
+                onError={handleError}
                 onUpdateTaskLevel={updateTaskLevel}
               />
             ))}
